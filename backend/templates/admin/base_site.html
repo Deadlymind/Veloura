@@ -1,0 +1,39 @@
+{% extends "admin/base.html" %}
+{% load static i18n %}
+{% get_current_language as LANGUAGE_CODE %}
+
+{% block title %}{{ title }} | Veloura Admin{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  #header { background: #fff9f5; color: #35251f; }
+  #header a:link, #header a:visited, #logout-form button { color: #824a35; }
+  #branding .veloura-admin-brand { display: flex; align-items: center; gap: 18px; color: #824a35; }
+  .veloura-admin-brand img { width: 88px; height: 88px; object-fit: contain; }
+  .veloura-admin-brand span { font-size: 18px; }
+  .login #branding .veloura-admin-brand { flex-direction: column; gap: 8px; }
+  .login .veloura-admin-brand img { width: 140px; height: 140px; }
+</style>
+{% endblock %}
+
+{% block branding %}
+<a class="veloura-admin-brand" href="{% url 'admin:index' %}">
+  <img src="{% static 'catalog/veloura-logo.png' %}" alt="Veloura — Beauty Inspires Confidence" width="1254" height="1254">
+  <span>{% if LANGUAGE_CODE == "fr" %}Gestion du catalogue{% else %}Catalog administration{% endif %}</span>
+</a>
+{% endblock %}
+
+{% block userlinks %}
+{{ block.super }}
+<form action="{% url 'set_language' %}" method="post" style="display:inline-flex;gap:6px;margin-left:12px">
+  {% csrf_token %}
+  <input name="next" type="hidden" value="{{ request.get_full_path }}">
+  <label for="admin-language">{% if LANGUAGE_CODE == "fr" %}Langue{% else %}Language{% endif %}</label>
+  <select name="language" id="admin-language">
+    <option value="en" {% if LANGUAGE_CODE == "en" %}selected{% endif %}>English</option>
+    <option value="fr" {% if LANGUAGE_CODE == "fr" %}selected{% endif %}>Français</option>
+  </select>
+  <button type="submit">OK</button>
+</form>
+{% endblock %}
