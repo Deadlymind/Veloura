@@ -135,6 +135,43 @@ test("create product, upload images, add variant, publish, and update inventory"
   }
 });
 
+test("images picked before the first save upload in order", async ({
+  page,
+}) => {
+  await login(page);
+  let productId = 0;
+  try {
+    await page.goto("/admin/products/new");
+    await page
+      .getByLabel("Product name", { exact: true })
+      .fill("QA Early Images");
+    await page
+      .getByLabel("URL slug", { exact: true })
+      .fill(`qa-early-images-${Date.now()}`);
+    await page.getByLabel("Category", { exact: true }).selectOption({ index: 1 });
+    await page
+      .getByLabel("Description", { exact: true })
+      .fill("Temporary end-to-end test product.");
+    await page.getByLabel("Base price", { exact: false }).fill("42.00");
+    await page
+      .getByLabel("Select product images")
+      .setInputFiles(["public/images/cream.png", "public/images/serum.png"]);
+    await expect(page.locator(".admin-image-card")).toHaveCount(2);
+    await page.getByRole("button", { name: "Move image 2 earlier" }).click();
+    await page
+      .getByRole("button", { name: "Save product", exact: true })
+      .click();
+    await expect(page).toHaveURL(/\/admin\/products\/\d+$/);
+    productId = Number(page.url().split("/").pop());
+    await expect(page.locator(".admin-image-card")).toHaveCount(2);
+    const saved = await (await api(page, `products/${productId}`)).json();
+    expect(saved.images).toHaveLength(2);
+    expect(saved.images[0].url).toContain("serum");
+  } finally {
+    if (productId) await api(page, `products/${productId}`, "DELETE");
+  }
+});
+
 test("categories and settings save, protect populated categories and warn for currency", async ({
   page,
 }) => {

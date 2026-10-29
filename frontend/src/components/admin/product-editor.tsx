@@ -83,11 +83,24 @@ export function ProductEditor({ id }: { id?: string }) {
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [preview, setPreview] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [upload, setUpload] = useState<{ index: number; progress: number }>();
   const categories = useResource<Paginated<StaffCategory>>(
     "categories?page_size=100",
   );
   const config = useResource<{ currency: string; locale: string }>("settings");
-  useUnsaved(dirty);
+  useUnsaved(dirty || pendingFiles.length > 0);
+  useEffect(() => {
+    // A new product whose first images failed to upload lands here flagged.
+    if (!id || !new URLSearchParams(window.location.search).has("images"))
+      return;
+    setError(
+      t(
+        "Product saved, but some images did not upload. Add them again in Product imagery below.",
+      ),
+    );
+    router.replace(`/admin/products/${id}`);
+  }, [id, router, t]);
   const reload = async () => {
     if (id) {
       const p = await staffApi<StaffProduct>(`products/${id}`);
@@ -132,11 +145,33 @@ export function ProductEditor({ id }: { id?: string }) {
       setProduct(saved);
       setDirty(false);
       setNotice(t("Product saved. Your catalog is up to date."));
-      if (!id) router.replace(`/admin/products/${saved.id}`);
+      if (!id) {
+        let uploaded = true;
+        try {
+          for (const [i, file] of pendingFiles.entries()) {
+            setUpload({ index: i, progress: 0 });
+            const data = new FormData();
+            data.set("product", String(saved.id));
+            data.set("image", file);
+            data.set("alt", `${saved.name} — product image ${i + 1}`);
+            data.set("position", String(i));
+            await uploadImage<StaffImage>("images", data, (progress) =>
+              setUpload({ index: i, progress }),
+            );
+          }
+        } catch {
+          uploaded = false;
+        }
+        setPendingFiles([]);
+        router.replace(
+          `/admin/products/${saved.id}${uploaded ? "" : "?images=failed"}`,
+        );
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
+      setUpload(undefined);
     }
   }
   if (loading) return <Loading />;
@@ -152,7 +187,7 @@ export function ProductEditor({ id }: { id?: string }) {
           id
             ? t("The details that make your product feel like Veloura.")
             : t(
-                "Start with the essentials. Images and variants follow after your first save.",
+                "Start with the essentials. Images upload when you save; variants follow after your first save.",
               )
         }
       >
@@ -165,7 +200,16 @@ export function ProductEditor({ id }: { id?: string }) {
         </button>
         <button form="product-form" className="admin-button" disabled={busy}>
           <Save size={16} />
-          {busy ? t("Saving…") : t("Save product")}
+          {upload
+            ? t(
+                "Uploading image {0} of {1}… {2}%",
+                upload.index + 1,
+                pendingFiles.length,
+                upload.progress,
+              )
+            : busy
+              ? t("Saving…")
+              : t("Save product")}
         </button>
       </PageHeading>
       <ErrorNote message={error} />
@@ -248,6 +292,13 @@ export function ProductEditor({ id }: { id?: string }) {
               />
             </Field>
           </section>
+          {!id && (
+            <PendingImages
+              files={pendingFiles}
+              setFiles={setPendingFiles}
+              disabled={busy}
+            />
+          )}
           <section className="admin-panel admin-form-panel">
             <h2>{t("The product story")}</h2>
             <p className="admin-help">
@@ -451,6 +502,102 @@ export function ProductEditor({ id }: { id?: string }) {
         </div>
       </Drawer>
     </>
+  );
+}
+function PendingImages({
+  files,
+  setFiles,
+  disabled,
+}: {
+  files: File[];
+  setFiles: (files: File[]) => void;
+  disabled: boolean;
+}) {
+  const { t } = useI18n();
+  const [urls, setUrls] = useState<string[]>([]);
+  useEffect(() => {
+    const next = files.map((file) => URL.createObjectURL(file));
+    setUrls(next);
+    return () => next.forEach((url) => URL.revokeObjectURL(url));
+  }, [files]);
+  return (
+    <section className="admin-panel admin-form-panel">
+      <h2>{t("Product imagery")}</h2>
+      <p className="admin-help">
+        {t(
+          "The first image is your cover. Upload JPEG, PNG or WebP files up to 10 MB each.",
+        )}{" "}
+        {t("Selected images upload when you save the product.")}
+      </p>
+      {files.length > 0 && (
+        <div className="admin-images">
+          {files.map((file, index) => (
+            <div className="admin-image-card" key={`${file.name}-${index}`}>
+              {urls[index] && <img src={urls[index]} alt={file.name} />}
+              <span className="admin-badge">
+                {index === 0 ? t("Cover image") : t("Image {0}", index + 1)}
+              </span>
+              <div className="admin-image-actions">
+                {[-1, 1].map((delta) => (
+                  <button
+                    type="button"
+                    key={delta}
+                    disabled={
+                      disabled ||
+                      index + delta < 0 ||
+                      index + delta >= files.length
+                    }
+                    aria-label={t(
+                      "Move image {0} {1}",
+                      index + 1,
+                      t(delta === -1 ? "earlier" : "later"),
+                    )}
+                    onClick={() => {
+                      const next = [...files];
+                      [next[index], next[index + delta]] = [
+                        next[index + delta],
+                        next[index],
+                      ];
+                      setFiles(next);
+                    }}
+                  >
+                    {delta === -1 ? (
+                      <ArrowUp size={15} />
+                    ) : (
+                      <ArrowDown size={15} />
+                    )}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  disabled={disabled}
+                  aria-label={t("Delete image {0}", index + 1)}
+                  onClick={() => setFiles(files.filter((_, i) => i !== index))}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="admin-upload">
+        <Upload size={24} strokeWidth={1.5} />
+        <label>
+          {t("Select product images")}
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            multiple
+            disabled={disabled}
+            onChange={(e) => {
+              setFiles([...files, ...(e.target.files || [])]);
+              e.target.value = "";
+            }}
+          />
+        </label>
+      </div>
+    </section>
   );
 }
 function Images({
